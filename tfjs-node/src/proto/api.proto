@@ -17,6 +17,7 @@
 // https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/function.proto
 // https://github.com/tensorflow/tensorboard/blob/master/tensorboard/compat/proto/summary.proto
 // https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/histogram/plugin_data.proto
+// https://github.com/tensorflow/tensorboard/blob/master/tensorboard/plugins/image/plugin_data.proto
 
 
 // This file is used to generate the api_pb.js file with the JavaScript Protocol
@@ -510,4 +511,18 @@ message Summary {
 message HistogramPluginData {
   // Version `0` is the only supported version.
   int32 version = 1;
+}
+
+// Image summaries created by the `tensorboard.plugins.image.summary`
+// module will include `SummaryMetadata` whose `plugin_data` field has
+// as `content` a binary string that is the encoding of an
+// `ImagePluginData` proto.
+message ImagePluginData {
+  // Version `0` is the only supported version.
+  int32 version = 1;
+
+  // Indicates whether this time series data was originally represented
+  // as `Summary.Value.Image` values and has been automatically
+  // converted to bytestring tensors.
+  bool converted_to_tensor = 2;
 }

@@ -16,7 +16,7 @@
  * =============================================================================
  */
 
-import {Scalar, Tensor, util} from '@tensorflow/tfjs';
+import {Scalar, Tensor, Tensor4D, util} from '@tensorflow/tfjs';
 
 import {ensureTensorflowBackend, nodeBackend, NodeJSKernelBackend} from './nodejs_kernel_backend';
 
@@ -77,6 +77,33 @@ export class SummaryFileWriter {
       description?: string) {
     this.backend.writeHistogramSummary(
         this.resourceHandle, step, name, data, buckets, description);
+  }
+
+  /**
+   *
+   * @param name A name for this summary. The summary tag used for TensorBoard
+   *     will be this name.
+   * @param data A `Tensor` representing pixel data with shape `[k, h, w, c]`,
+   *     where `k` is the number of images, `h` and `w` are the height and width
+   *     of the images, and `c` is the number of channels, which should be 1, 2,
+   *     3, or 4 (grayscale, grayscale with alpha, RGB, RGBA).
+   * @param step Required `int64`-castable, monotonically-increasing step
+   *     value.
+   * @param maxOutputs Optional `number` or rank-0 integer `Tensor`. At most
+   *     this many images will be emitted at each step. When more than
+   *     `maxOutputs` many images are provided, the first `maxOutputs` many
+   *     images will be used and the rest silently discarded.
+   * @param description Optional long-form description for this summary, as a
+   *    `string`
+   *
+   * @returns a Promise which completes when all image summaries have been
+   *     written.
+   */
+  image(
+      name: string, data: Tensor4D, step: number, maxOutputs?: number|Scalar,
+      description?: string): Promise<void> {
+    return this.backend.writeImageSummary(
+        this.resourceHandle, name, data, step, maxOutputs, description);
   }
 
   /**

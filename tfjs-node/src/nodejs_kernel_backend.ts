@@ -18,6 +18,7 @@
 import * as tf from '@tensorflow/tfjs';
 import {backend_util, BackendTimingInfo, DataId, DataType, KernelBackend, ModelTensorInfo, Rank, Scalar, scalar, ScalarLike, Tensor, Tensor1D, Tensor2D, Tensor3D, Tensor4D, TensorInfo, tidy, util} from '@tensorflow/tfjs';
 import {isArray, isNullOrUndefined} from 'util';
+import {encodePng} from './image';
 
 import {encodeInt32ArrayAsInt64, Int64Scalar} from './int64_tensors';
 import {TensorMetadata, TFEOpAttr, TFJSBinding} from './tfjs_binding';
@@ -596,6 +597,43 @@ export class NodeJSKernelBackend extends KernelBackend {
     });
   }
 
+  async writeImageSummary(
+      resourceHandle: Tensor, name: string, data: Tensor4D, step: number,
+      maxOutputs: number|Scalar|undefined,
+      description: string|undefined): Promise<void> {
+    util.assert(
+        data.rank === 4,
+        () => `Expected data to have rank 4, but it had rank ${data.rank}`);
+
+    const content =
+        new messages.ImagePluginData().setVersion(0).setConvertedToTensor(
+            false);
+    const pluginData = new messages.SummaryMetadata.PluginData()
+                           .setPluginName('images')
+                           .setContent(content.serializeBinary());
+    const summary = new messages.SummaryMetadata()
+                        .setPluginData(pluginData)
+                        .setDisplayName(null)
+                        .setSummaryDescription(description);
+
+    const summaryTensor = scalar(summary.serializeBinary(), 'string');
+    const nameTensor = scalar(name, 'string');
+    const stepScalar = new Int64Scalar(step);
+    const images = await this.encodeSummaryImages(data, maxOutputs);
+    util.assert(
+        images.dtype === 'string',
+        () => `Expected images to have dtype string, but they had dtype ${
+            images.dtype}`);
+
+    const inputArgs: Array<Tensor|Int64Scalar> =
+        [resourceHandle, stepScalar, images, nameTensor, summaryTensor];
+    const typeAttr = this.typeAttributeFromTensor(images);
+    const opAttrs: TFEOpAttr[] =
+        [{name: 'T', type: this.binding.TF_ATTR_TYPE, value: typeAttr}];
+    this.binding.executeOp(
+        'WriteSummary', opAttrs, this.getInputTensorIds(inputArgs), 0);
+  }
+
   flushSummaryWriter(resourceHandle: Tensor): void {
     const inputArgs: Tensor[] = [resourceHandle];
     this.executeMultipleOutputs('FlushSummaryWriter', [], inputArgs, 0);
@@ -654,6 +692,37 @@ export class NodeJSKernelBackend extends KernelBackend {
     const rightEdges = edges.slice(1, bucketCount);
     return tf.stack([leftEdges, rightEdges, bucketCounts.cast('float32')])
         .transpose();
+  }
+
+  private async encodeSummaryImages(
+      data: Tensor4D, maxOutputs: number|Scalar|undefined): Promise<Tensor1D> {
+    let maxOutputsNumber: number;
+    if (maxOutputs === undefined) {
+      maxOutputsNumber = 3;
+    } else if (typeof maxOutputs === 'number') {
+      maxOutputsNumber = maxOutputs;
+    } else {
+      maxOutputsNumber = maxOutputs.arraySync();
+    }
+
+    util.assert(
+        maxOutputsNumber >= 0,
+        () => `Expected non-negative value for maxOutputs, but got ${
+            maxOutputsNumber}`);
+
+    const [numberImages, height, width, channels] = data.shape;
+    const numberOutputs = Math.min(numberImages, maxOutputsNumber);
+    const limitedImages = data.slice(0, numberImages);
+    util.assertShapesMatch(
+        limitedImages.shape, [numberOutputs, height, width, channels]);
+    const limitedImagesArray = data.split(numberOutputs, 0);
+    const encodedImages: Tensor1D[] =
+        await Promise.all(limitedImagesArray.map(image => {
+          return encodePng(image.as3D(height, width, channels))
+              .then(encoded => tf.tensor1d(encoded));
+        }));
+    const dimensions = tf.tensor1d([width, height], 'string')
+    return tf.concat([dimensions, ...encodedImages]);
   }
 
   // ~ TensorBoard-related (tfjs-node-specific) backend kernels.
